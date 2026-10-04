@@ -134,9 +134,9 @@ async function searchSubSource(
   if (!apiKey) return [];
 
   try {
-    // Step 1: Search for the movie/show
+    // Step 1: Search for the movie/show using searchType=text and q parameter
     const searchRes = await fetch(
-      `https://api.subsource.net/api/v1/movies/search?query=${encodeURIComponent(query)}`,
+      `https://api.subsource.net/api/v1/movies/search?searchType=text&q=${encodeURIComponent(query)}`,
       {
         headers: { "X-API-Key": apiKey },
         next: { revalidate: 0 },
@@ -145,10 +145,10 @@ async function searchSubSource(
     if (!searchRes.ok) return [];
 
     const searchData = await searchRes.json();
-    const movies = searchData?.data || searchData?.results || searchData || [];
+    const movies = searchData?.data || [];
     if (!Array.isArray(movies) || movies.length === 0) return [];
 
-    const movieId = movies[0]?.id;
+    const movieId = movies[0]?.movieId;
     if (!movieId) return [];
 
     // Step 2: Get subtitles for that movie
@@ -162,25 +162,32 @@ async function searchSubSource(
     if (!subsRes.ok) return [];
 
     const subsData = await subsRes.json();
-    const subs: SubSourceResult[] =
-      subsData?.data || subsData?.results || subsData || [];
+    const subs = subsData?.data || [];
     if (!Array.isArray(subs)) return [];
 
-    return subs.map((s, i) => ({
-      id: `subsource-${s.id || i}-${Date.now()}`,
-      source: "subsource" as const,
-      releaseName: s.release || s.title || "Unknown",
-      language: LANG_MAP[lang] || "vietnamese",
-      languageCode: lang,
-      author: s.author || "Unknown",
-      downloadUrl: `https://api.subsource.net/api/v1/subtitles/${s.id}/download`,
-      pageUrl: `https://subsource.net`,
-      hi: false,
-      rating: s.rating || null,
-      downloads: s.downloadCount || null,
-      episode: null,
-      season: null,
-    }));
+    return subs.map((s: any, i: number) => {
+      const releaseName =
+        (Array.isArray(s.releaseInfo) && s.releaseInfo.length > 0
+          ? s.releaseInfo.join(", ")
+          : s.releaseType) || movies[0]?.title || "Unknown";
+      const author = s.contributors?.[0]?.displayname || "Unknown";
+
+      return {
+        id: `subsource-${s.subtitleId || i}-${Date.now()}`,
+        source: "subsource" as const,
+        releaseName,
+        language: s.language || LANG_MAP[lang] || "vietnamese",
+        languageCode: lang,
+        author,
+        downloadUrl: `https://api.subsource.net/api/v1/subtitles/${s.subtitleId}/download`,
+        pageUrl: s.link ? `https://subsource.net${s.link}` : "https://subsource.net",
+        hi: s.hearingImpaired || false,
+        rating: s.rating?.good ?? null,
+        downloads: s.downloads ?? null,
+        episode: null,
+        season: null,
+      };
+    });
   } catch (e) {
     console.error("SubSource error:", e);
     return [];
